@@ -1,0 +1,284 @@
+import java.io.File;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.Map;
+
+/**
+ * This class provides all code necessary to take a query box and produce
+ * a query result. The getMapRaster method must return a Map containing all
+ * seven of the required fields, otherwise the front end code will probably
+ * not draw the output correctly.
+ */
+public class Rasterer {
+    // Recommended: QuadTree instance variable. You'll need to make
+    //              your own QuadTree since there is no built-in quadtree in Java.
+    HashSet<String> fileNames;
+    QuadTree root;
+    String imgRoot;
+
+    /** imgRoot is the name of the directory containing the images.
+     *  You may not actually need this for your class. */
+    public Rasterer(String imgRoot) {
+        // YOUR CODE HERE
+        this.imgRoot = imgRoot;
+        fileNames = readFileNames(imgRoot);
+        root = new QuadTree("root.png", MapServer.ROOT_ULLON, MapServer.ROOT_ULLAT, MapServer.ROOT_LRLON, MapServer.ROOT_LRLAT, fileNames);
+    }
+
+    /**
+     * Helper method: Get list of file names
+     * https://stackoverflow.com/questions/5694385/getting-the-filenames-of-all-files-in-a-folder
+     */
+    public HashSet<String> readFileNames(String imgRoot) {
+        File folder = new File(imgRoot);
+        File[] listOfFiles = folder.listFiles();
+        HashSet<String> fileNames = new HashSet<>();
+        for (File f : listOfFiles) {
+            if (f.isFile())
+                fileNames.add(f.getName());
+        }
+        return fileNames;
+    }
+
+    /**
+     * Takes a user query and finds the grid of images that best matches the query. These
+     * images will be combined into one big image (rastered) by the front end. <br>
+     * <p>
+     *     The grid of images must obey the following properties, where image in the
+     *     grid is referred to as a "tile".
+     *     <ul>
+     *         <li>The tiles collected must cover the most longitudinal distance per pixel
+     *         (LonDPP) possible, while still covering less than or equal to the amount of
+     *         longitudinal distance per pixel in the query box for the user viewport size. </li>
+     *         <li>Contains all tiles that intersect the query bounding box that fulfill the
+     *         above condition.</li>
+     *         <li>The tiles must be arranged in-order to reconstruct the full image.</li>
+     *     </ul>
+     * </p>
+     * @param params Map of the HTTP GET request's query parameters - the query box and
+     *               the user viewport width and height.
+     *
+     * @return A map of results for the front end as specified:
+     * "render_grid"   -> String[][], the files to display
+     * "raster_ul_lon" -> Number, the bounding upper left longitude of the rastered image <br>
+     * "raster_ul_lat" -> Number, the bounding upper left latitude of the rastered image <br>
+     * "raster_lr_lon" -> Number, the bounding lower right longitude of the rastered image <br>
+     * "raster_lr_lat" -> Number, the bounding lower right latitude of the rastered image <br>
+     * "depth"         -> Number, the 1-indexed quadtree depth of the nodes of the rastered image.
+     *                    Can also be interpreted as the length of the numbers in the image
+     *                    string. <br>
+     * "query_success" -> Boolean, whether the query was able to successfully complete. Don't
+     *                    forget to set this to true! <br>
+     * @see #REQUIRED_RASTER_REQUEST_PARAMS
+     */
+    public Map<String, Object> getMapRaster(Map<String, Double> params) {
+        // System.out.println(params);
+        Map<String, Object> results = new HashMap<>();
+        //System.out.println("Since you haven't implemented getMapRaster, nothing is displayed in "
+        //                   + "your browser.");
+        //return results;
+
+        System.out.println(params);
+
+        double ullon = params.get("ullon");
+        double ullat = params.get("ullat");
+        double lrlon = params.get("lrlon");
+        double lrlat = params.get("lrlat");
+        double w = params.get("w");
+        double h = params.get("h");
+        double targetLonDPP = calcLonDPP(ullon, lrlon, w);
+
+        // Check if the query box is out of range
+        if (ullon >= lrlon || ullat <= lrlat
+                || ullon >= root.lrlon || lrlon <= root.ullon
+                || ullat <= root.lrlat || lrlat >= root.ullat) {
+            results.put("query_success", false);
+            return results;
+        }
+
+        // Make sure the query box stays totally inside the range to prevent unwanted bugs
+        // (Hacky way)
+        ullon = Math.max(ullon, root.ullon);
+        ullat = Math.min(ullat, root.ullat);
+        lrlon = Math.min(lrlon, root.lrlon);
+        lrlat = Math.max(lrlat, root.lrlat);
+
+        QuadTree currentUl = root;
+        QuadTree currentLr = root;
+        int depth = 0;
+
+        while (calcLonDPP(currentUl.ullon, currentUl.lrlon, MapServer.TILE_SIZE) > targetLonDPP) {
+            System.out.println(calcLonDPP(currentUl.ullon, currentUl.lrlon, MapServer.TILE_SIZE));
+            System.out.println(currentUl.ullon + " " + currentUl.ullat + " " + currentUl.lrlon + " " + currentUl.lrlat);
+            System.out.println("--" + calcLonDPP(currentLr.ullon, currentLr.lrlon, MapServer.TILE_SIZE));
+            System.out.println(currentLr.ullon + " " + currentLr.ullat + " " + currentLr.lrlon + " " + currentLr.lrlat);
+            System.out.println();
+            QuadTree prevUl = currentUl;
+            //currentUl = currentUl.locate(ullon, ullat, 4);
+            //currentLr = currentLr.locate(lrlon, lrlat, 1);
+            currentUl = currentUl.locate(ullon, ullat, 4);
+            currentLr = currentLr.locate(lrlon, lrlat, 1);
+            if (prevUl == currentUl) {
+                // Reached the smallest grid
+                break;
+            }
+            depth++;  // Put it here so that we won't increase 1 extra depth if currentUl stays the same (i.e. reached deepest level)
+        }
+        //System.out.println(calcLonDPP(currentUl.ullon, currentUl.lrlon, MapServer.TILE_SIZE));
+
+        results.put("raster_ul_lon", currentUl.ullon);
+        results.put("raster_ul_lat", currentUl.ullat);
+        results.put("raster_lr_lon", currentLr.lrlon);
+        results.put("raster_lr_lat", currentLr.lrlat);
+        results.put("depth", depth);
+        results.put("query_success", true);
+
+        String[][] gridArr;
+        if (currentUl.fileName.equals("root.png")) {
+            gridArr = new String[1][1];
+            gridArr[0][0] = imgRoot + "root.png";
+        } else {
+            ArrayList<String[]> grid = new ArrayList<>();
+            String rawName = currentUl.fileName.replaceAll(".png", "");
+            String lrRawName = currentLr.fileName.replaceAll(".png", "");
+
+            grid.add(generateRow(rawName, lrRawName)); // Add first row manually
+            while (!isSameRowAs(rawName, lrRawName)) {
+                rawName = findBelow(rawName);
+                grid.add(generateRow(rawName, lrRawName));
+            }
+
+            gridArr = grid.toArray(new String[0][0]);
+        }
+        results.put("render_grid", gridArr);
+
+        /*System.out.println(results);
+        for (int ii=0; ii<gridArr.length; ii++) {
+            for (int jj=0; jj<gridArr[ii].length; jj++)
+                System.out.print(gridArr[ii][jj] + " ");
+            System.out.println();
+        }*/
+        return results;
+    }
+
+    /**
+     * Helper method: Calculates LonDPP
+     */
+    public double calcLonDPP(double ullon, double lrlon, double width) {
+        return (lrlon - ullon) / width;
+    }
+
+    /**
+     * Helper method: Checks whether two images are in the same row (i.e. same latitude)
+     *
+     * Important observation:
+     * In each row, each specific digit can only alternate between 1/2 or 3/4 across the row
+     * e.g. 1[3]1 -> 1[3]2 -> 1[4]1 -> 1[4]2 -> 2[3]1 -> ...
+     */
+    public boolean isSameRowAs(String rawName1, String rawName2) {
+        if (rawName1.length() != rawName2.length())
+            return false;
+        for (int i=0; i<rawName1.length(); i++) {
+            char x = rawName1.charAt(i);
+            char y = rawName2.charAt(i);
+            boolean xIs1 = x == '1' || x == '2';
+            boolean yIs1 = y == '1' || y == '2';
+            if (xIs1 ^ yIs1)
+                return false;
+        }
+        return true;
+    }
+    /**
+     * Helper method: Checks whether two images are in the same column (i.e. same longitude)
+     *
+     * Important observation:
+     * In each row, each specific digit can only alternate between 1/3 or 2/4 across the row
+     * e.g. 1[1]1 -> 1[1]3 -> 1[3]1 -> 1[3]3 -> 3[1]1 -> ...
+     */
+    public boolean isSameColumnAs(String rawName1, String rawName2) {
+        if (rawName1.length() != rawName2.length())
+            return false;
+        for (int i=0; i<rawName1.length(); i++) {
+            char x = rawName1.charAt(i);
+            char y = rawName2.charAt(i);
+            boolean xIs1 = x == '1' || x == '3';
+            boolean yIs1 = y == '1' || y == '3';
+            if (xIs1 ^ yIs1)
+                return false;
+        }
+        return true;
+    }
+
+    /**
+     * Helper method: Find the name of the cell below
+     * (Using the important observation stated above)
+     */
+    public String findBelow(String rawName) {
+        char[] chars = rawName.toCharArray();
+        int i = chars.length - 1;
+        while (chars[i] == '3' || chars[i] == '4') {
+            chars[i] = (chars[i] == '3')? '1': '2';
+            i--;
+            if (i == -1) {
+                // Reached end of grid (should never happen)
+                return "";
+            }
+        }
+        chars[i] = (chars[i] == '1')? '3': '4';
+        return new String(chars);
+    }
+    /**
+     * Helper method: Find the name of the cell to the right
+     * (Using the important observation stated above)
+     */
+    public String findRight(String rawName) {
+        char[] chars = rawName.toCharArray();
+        int i = chars.length - 1;
+        while (chars[i] == '2' || chars[i] == '4') {
+            chars[i] = (chars[i] == '2')? '1': '3';
+            i--;
+            if (i == -1) {
+                // Reached end of grid (should never happen)
+                return "";
+            }
+        }
+        chars[i] = (chars[i] == '1')? '2': '4';
+        return new String(chars);
+    }
+
+    /**
+     * Helper method: Generate one row of file names
+     */
+    public String[] generateRow(String rawName, String lrRawName) {
+        ArrayList<String> row = new ArrayList<>();
+        String cellName = rawName;
+
+        row.add(imgRoot + cellName + ".png");  // Add first cell manually
+        while (!isSameColumnAs(cellName, lrRawName)) {
+            cellName = findRight(cellName);
+            System.out.println(cellName + " " + lrRawName);
+            row.add(imgRoot + cellName + ".png");
+        }
+        return row.toArray(new String[0]);
+    }
+
+
+    public static void main(String[] args) {
+        Map<String, Double> params = new HashMap<>();
+        params.put("lrlon", -122.24053369025242);
+        params.put("ullon", -122.24163047377972);
+        params.put("w", 892.0);
+        params.put("h", 875.0);
+        params.put("ullat", 37.87655856892288);
+        params.put("lrlat", 37.87548268822065);
+        Map<String, Object> ret = new Rasterer("img/").getMapRaster(params);
+        System.out.println(ret);
+        String[][] tr = (String[][])ret.get("render_grid");
+        for (int i=0; i<tr.length; i++) {
+            for (int j=0; j<tr[i].length; j++)
+                System.out.print(tr[i][j] + " ");
+            System.out.println();
+        }
+    }
+}

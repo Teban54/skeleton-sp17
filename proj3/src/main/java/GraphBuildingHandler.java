@@ -2,6 +2,7 @@ import org.xml.sax.Attributes;
 import org.xml.sax.SAXException;
 import org.xml.sax.helpers.DefaultHandler;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Set;
@@ -39,8 +40,14 @@ public class GraphBuildingHandler extends DefaultHandler {
     private String activeState = "";
     private final GraphDB g;
 
+    // Helper variable: Current list of nodes in the way
+    // Set to null if we're not processing a way
+    private ArrayList<Long> currentWay;
+    private boolean isRoad;
+
     public GraphBuildingHandler(GraphDB g) {
         this.g = g;
+        currentWay = null;
     }
 
     /**
@@ -71,10 +78,15 @@ public class GraphBuildingHandler extends DefaultHandler {
             /* TODO Use the above information to save a "node" to somewhere. */
             /* Hint: A graph-like structure would be nice. */
 
+            g.addNode(Long.parseLong(attributes.getValue("id")), Double.parseDouble(attributes.getValue("lon")), Double.parseDouble(attributes.getValue("lat")));
+
         } else if (qName.equals("way")) {
             /* We encountered a new <way...> tag. */
             activeState = "way";
 //            System.out.println("Beginning a way...");
+            currentWay = new ArrayList<>();
+            isRoad = false;
+
         } else if (activeState.equals("way") && qName.equals("nd")) {
             /* While looking at a way, we found a <nd...> tag. */
             //System.out.println("Id of a node in this way: " + attributes.getValue("ref"));
@@ -85,6 +97,7 @@ public class GraphBuildingHandler extends DefaultHandler {
             cumbersome since you might have to remove the connections if you later see a tag that
             makes this way invalid. Instead, think of keeping a list of possible connections and
             remember whether this way is valid or not. */
+            currentWay.add(Long.parseLong(attributes.getValue("ref")));
 
         } else if (activeState.equals("way") && qName.equals("tag")) {
             /* While looking at a way, we found a <tag...> tag. */
@@ -93,10 +106,12 @@ public class GraphBuildingHandler extends DefaultHandler {
             if (k.equals("maxspeed")) {
                 //System.out.println("Max Speed: " + v);
                 /* TODO set the max speed of the "current way" here. */
+                // Ignored for this assignment
             } else if (k.equals("highway")) {
                 //System.out.println("Highway type: " + v);
                 /* TODO Figure out whether this way and its connections are valid. */
                 /* Hint: Setting a "flag" is good enough! */
+                isRoad = ALLOWED_HIGHWAY_TYPES.contains(v);
             } else if (k.equals("name")) {
                 //System.out.println("Way Name: " + v);
             }
@@ -109,6 +124,8 @@ public class GraphBuildingHandler extends DefaultHandler {
             node this tag belongs to. Remember XML is parsed top-to-bottom, so probably it's the
             last node that you looked at (check the first if-case). */
 //            System.out.println("Node's name: " + attributes.getValue("v"));
+
+            /* This is NOT done for the Duke assignment as Autocomplete is not given. */
         }
     }
 
@@ -130,6 +147,13 @@ public class GraphBuildingHandler extends DefaultHandler {
             /* Hint1: If you have stored the possible connections for this way, here's your
             chance to actually connect the nodes together if the way is valid. */
 //            System.out.println("Finishing a way...");
+            if (isRoad) {
+                for (int i=0; i<currentWay.size()-1; i++)
+                    g.addEdge(currentWay.get(i), currentWay.get(i+1));
+            }
+
+            currentWay = null;
+            isRoad = false;
         }
     }
 

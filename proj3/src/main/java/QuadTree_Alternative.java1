@@ -1,0 +1,102 @@
+import java.util.HashSet;
+
+public class QuadTree {
+    String fileName;
+    double ullon, ullat; // Upper left corner (minimum longitude, maximum latitude)
+    double lrlon, lrlat; // Lower right corner (maximum longitude, minimum latitude)
+
+    // Helper variables
+    protected double midlat, midlon, halflat, halflon;
+
+    //QuadTree ulChild, urChild, llChild, lrChild;
+    QuadTree[] child;
+    protected double[] ullonChild = {0, 0, 0, 0};
+    protected double[] ullatChild = {0, 0, 0, 0};
+
+    protected boolean hasChild;
+
+    public QuadTree(String fileName, double ullon, double ullat, double lrlon, double lrlat, HashSet<String> fileNames) {
+        this.fileName = fileName;
+        this.ullon = ullon;
+        this.ullat = ullat;
+        this.lrlon = lrlon;
+        this.lrlat = lrlat;
+
+        midlat = (ullat + lrlat) / 2;
+        midlon = (ullon + lrlon) / 2;
+        halflat = (ullat - lrlat) / 2;
+        halflon = (lrlon - ullon) / 2;
+
+        // Positions of each quadrant
+        ullonChild[0] = ullon;
+        ullonChild[1] = midlon;
+        ullonChild[2] = ullon;
+        ullonChild[3] = midlon;
+        ullatChild[0] = ullat;
+        ullatChild[1] = ullat;
+        ullatChild[2] = midlat;
+        ullatChild[3] = midlat;
+
+        //ulChild = urChild = llChild = lrChild = null;
+        child = new QuadTree[4];
+        hasChild = false;
+
+        for (int i = 1; i <= 4; i++) {
+            String newFileName = fileName.replaceAll(".png", "") + i + ".png";
+            if (fileName.equals("root.png"))
+                newFileName = i + ".png";
+            if (!fileNames.contains(newFileName))  // File does not exist
+                continue;
+            hasChild = true;
+
+            double newUllon = ullonChild[i-1];
+            double newUllat = ullatChild[i-1];
+            double newLrlon = newUllon + halflon;
+            double newLrlat = newUllat - halflat;
+            child[i-1] = new QuadTree(newFileName, newUllon, newUllat, newLrlon, newLrlat, fileNames);
+        }
+    }
+
+    public boolean within(double lon, double lat) {
+        //return (lon >= ullon && lon <= lrlon) && (lat <= ullat && lat >= lrlat);
+        return within(lon, lat, 0);
+    }
+    /**
+     * Rewrite QuadTree.within() with additional directional parameter
+     *
+     * @param dir: Direction of grids to be included (4: Include everything towards LR; 1: Include everything towards UL)
+     */
+    public boolean within(double lon, double lat, int dir) {
+        switch (dir) {
+            case 1:  // Towards UL - right and bottom inclusive, left and top exclusive
+                return (lon > ullon && lon <= lrlon) && (lat < ullat && lat >= lrlat);
+            case 2:  // Towards UR - left and bottom inclusive, right and top exclusive
+                return (lon >= ullon && lon < lrlon) && (lat < ullat && lat >= lrlat);
+            case 3:  // Towards LL - right and top inclusive, left and bottom exclusive
+                return (lon > ullon && lon <= lrlon) && (lat <= ullat && lat > lrlat);
+            case 4:  // Towards LR - left and top inclusive, right and bottom exclusive
+                return (lon >= ullon && lon < lrlon) && (lat <= ullat && lat > lrlat);
+            default:
+                return (lon >= ullon && lon <= lrlon) && (lat <= ullat && lat >= lrlat);
+        }
+    }
+
+    public QuadTree locate(double lon, double lat) {
+        return locate(lon, lat, 0);
+    }
+    public QuadTree locate(double lon, double lat, int dir) {
+        for (int i=0; i<=3; i++)
+            if ((child[i] != null) && child[i].within(lon, lat, dir))
+                return child[i];
+
+        // If there's no child, will reach here
+        return within(lon, lat)? this: null;
+    }
+
+    public boolean isMidpointLon(double lon) {
+        return lon == midlon;
+    }
+    public boolean isMidpointLat(double lat) {
+        return lat == midlat;
+    }
+}
